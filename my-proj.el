@@ -94,7 +94,7 @@ Defines a global variable 'my-project' which contains the project properties."
   (let ((root-dir (get-root-dir my-project))
 	(file-type (get-sources my-project)))
     (shell-command-to-string
-     (concat "cd " root-dir ";" (construct-find-file-string file-type root-dir) "  -print | xargs etags"))
+     (concat (construct-find-file-string file-type root-dir) "  -print | xargs etags"))
     (visit-tags-table (concat root-dir "TAGS"))))
 
 (defun my-project-load ()
