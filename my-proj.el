@@ -14,6 +14,8 @@
 ;; Create 'project.el' in the project's root directory like this:
 ;; (defproject "My project"               ; Name of the project
 ;;   :root-dir "/root/dir"                ; Root directory of the project
+;;   :items '((:messages-class "java/com/actionitem/client/localization/Messages.java")
+;;            (:messages-text "resources/com/actionitem/client/localization/Messages.properties"))
 ;;   :sources "*.java"                    ; The file extension for etags
 ;;   :find-file '("*.java *.html *.css")  ; The file extension (one or more) for finding files. May be a string or a list of strings.
 ;;   :exclude "(SNAPSHOT)|(generated)")   ; The grep regexp for files and directories to exclude from search.
@@ -34,11 +36,11 @@
 		(setq pairs (cons (list (nth i args) (nth (1+ i) args)) pairs)))))
     pairs))
 
-(defun get-property (proj property)
+(defun get-property (data property)
   "Returns the value of the specified property.
 Example: (get-property '((:a 1) (:b 2)) :b) -> 2"
   (let (result)
-    (dolist (item proj)
+    (dolist (item data)
       (if (equal (first item) property)
 	  (setq result (second item))))
     result))
@@ -54,6 +56,19 @@ Example: (get-property '((:a 1) (:b 2)) :b) -> 2"
 
 (defun get-exclude (proj)
   (get-property proj :exclude))
+
+(defun get-items (proj)
+  (get-property proj :items))
+
+(defun get-messages-class (proj)
+  (concat
+   (get-root-dir proj)
+   (get-property (get-items proj) :messages-class)))
+
+(defun get-messages-text (proj)
+  (concat
+   (get-root-dir proj)
+   (get-property (get-items proj) :messages-text)))
 
 (defun defproject (name &rest args)
   "Use this function to describe your project. See the example at the top of the file.
@@ -88,6 +103,67 @@ Defines a global variable 'my-project' which contains the project properties."
     (message (concat "You've entered: " selected))
     (find-file (concat root-dir selected))))
 
+
+(defun my-create-files-buffer (files-string)
+  (let ((buffer-name "Files"))
+    (if (not (equal nil (get-buffer buffer-name)))
+	(kill-buffer buffer-name))
+    (get-buffer-create buffer-name)
+    (set-buffer buffer-name)
+    (switch-to-buffer buffer-name)
+    (insert files-string)))
+
+(defun my-open-file-at-point ()
+  (interactive)
+  (let* ((start (progn (beginning-of-line) (point)))
+	 (end (progn (end-of-line) (point)))
+	 (str (buffer-substring (+ 2 start) end)))
+    (find-file (concat (get-root-dir my-project) str))))
+
+(defun my-decorate-line ()
+    (let ((link-start (save-excursion
+		      (beginning-of-line)
+		      (point)))
+	(link-end (save-excursion
+		    (end-of-line)
+		    (point))))
+    (add-text-properties link-start
+			 link-end
+			 '(mouse-face highlight
+				      help-echo "Open this file"))
+    (let ((map (make-sparse-keymap)))
+      (define-key map (kbd "<RET>") 'my-open-file-at-point)
+      (define-key map [mouse-1] 'my-open-file-at-point)
+      (put-text-property link-start link-end 'keymap map))))
+
+(defun my-make-files-buffer-clickable ()
+  (dotimes (i (count-screen-lines))
+    (goto-line (+ 1 i))
+    (my-decorate-line))
+    (setq buffer-read-only t))
+
+(defun my-grep ()
+  (interactive)
+  (let* ((find-files (get-find-file my-project))
+	 (root-dir (get-root-dir my-project))
+	 (prompt (cons "All" find-files))
+	 files
+	 text
+	 command
+	 results)
+    (setq files (completing-read "In which files to search:" prompt))
+    (setq text (read-string "Text to search: "))
+    (if (string= files "All")
+	(setq command (construct-find-file-string find-files root-dir))
+      (setq command (construct-find-file-string (list files) root-dir)))
+    (setq command (concat command
+			  (construct-grep-string (get-exclude my-project))
+			  "|xargs grep -s -l \"" text "\""))    
+    (setq results (shell-command-to-string command))
+    (my-create-files-buffer results)
+    (my-make-files-buffer-clickable)))
+
+
 (defun my-run-etags ()
   "Creates and visits the tags table for the project sources."
   (interactive)
@@ -110,4 +186,80 @@ Defines a global variable 'my-project' which contains the project properties."
 ;;
 (global-set-key (kbd "<f2>") 'my-run-etags)
 (global-set-key (kbd "<f7>") 'my-find-file)
+(global-set-key (kbd "C-<f7>") 'my-grep)
 (global-set-key (kbd "C-<f9>") 'my-project-load)
+
+
+;; Java-specific functions
+;;
+
+(defun my-localized-text ()
+  (interactive)
+  (save-excursion
+    (let* ((jpath (get-messages-class my-project))
+	   (tpath (get-messages-text my-project))
+	   (jbuf (find-file jpath))
+	   (tbuf (find-file tpath))
+	   (name (read-string "Variable name: "))
+	   (text (read-string "Text: ")))
+      (save-excursion
+	(with-current-buffer tbuf
+	  (end-of-buffer)
+	  (insert (concat "\n" name " = " text))
+	  (save-buffer)
+	  (kill-buffer tbuf))	   
+	(with-current-buffer jbuf
+	  (end-of-buffer)
+	  (search-backward "}")
+	  (insert (concat "\n    @Key(\"" name "\")\n    String " name "();\n"))
+	  (save-buffer)
+	  (kill-buffer jbuf)))
+      (insert (concat "MessageFactory.messages()." name "()")))))
+
+
+;; Semantic
+
+
+;; Getters/setters
+(defun current-class ()
+  (semantic-current-tag-of-class 'type))
+
+(defun class-var (var-name class)
+  (let ((members
+	 (semantic-tag-get-attribute class :members)))
+    (first (semantic-find-tags-by-name var-name members))))
+
+(defun make-getter (type name capitalized-name)
+  (concat "\npublic " type " get" capitalized-name "() {\n"
+	  "\treturn " name ";\n"
+	  "}\n\n"))
+
+(defun make-setter (type name capitalized-name)
+  (concat "\npublic void set" capitalized-name "(" type " " name ") {\n"
+	  "this." name " = " name ";\n"
+	  "}\n\n"))
+
+(defun make-accessor ()
+  (interactive)
+  (let* ((class (current-class))
+	 (tag (class-var (current-word) class))
+	 (name (semantic-tag-name tag))
+ 	 (capitalized-name (capitalize name))
+	 (type (semantic-tag-get-attribute tag :type))
+	 (start (- (semantic-tag-end class) 1)))
+    (save-excursion
+      (goto-char start)
+      (insert (make-getter type name capitalized-name))
+      (insert (make-setter type name capitalized-name))
+      (indent-region start (point)))))
+
+
+
+
+
+
+
+
+
+
+
