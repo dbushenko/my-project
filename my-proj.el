@@ -2,9 +2,11 @@
 ;; License BSD
 ;;
 ;; The module provides the functions bound to the keys:
-;; 1) C-<F9> opens a project file.
+;; 1) C-<F9> opens a project file. If loading fails, just open the project file, set pointer
+;;    after the last bracket and evaluate it (C-x C-e).
 ;; 2) <F2> generates the tags for the project and visits the tags table.
 ;; 3) <F7> quickly finds a file in the project.
+;; 4) C-<F7> grep on project sources.
 ;; 
 ;; Install
 ;; 1) Copy the file my-project.el to $HOME/.emacs.d
@@ -17,8 +19,8 @@
 ;;   :items '((:messages-class "java/com/actionitem/client/localization/Messages.java")
 ;;            (:messages-text "resources/com/actionitem/client/localization/Messages.properties"))
 ;;   :sources "*.java"                    ; The file extension for etags
-;;   :find-file '("*.java *.html *.css")  ; The file extension (one or more) for finding files. May be a string or a list of strings.
-;;   :exclude "(SNAPSHOT)|(generated)")   ; The grep regexp for files and directories to exclude from search.
+;;   :find-file '("*.java" "*.html")      ; The file extension (one or more) for finding files. May be a string or a list of strings.
+;;   :exclude "SNAPSHOT|generated")       ; The grep regexp for files and directories to exclude from search.
 
 (defun collect-pairs (args)
   "Makes a list of pairs from a flat list. Provide it '(1 2 3 4 5 6)
@@ -103,30 +105,33 @@ Defines a global variable 'my-project' which contains the project properties."
     (message (concat "You've entered: " selected))
     (find-file (concat root-dir selected))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; The following functions are needed for the
+;; function my-grep.
 
-(defun my-create-files-buffer (files-string)
-  (let ((buffer-name "Files"))
-    (if (not (equal nil (get-buffer buffer-name)))
-	(kill-buffer buffer-name))
-    (get-buffer-create buffer-name)
-    (set-buffer buffer-name)
-    (switch-to-buffer buffer-name)
+(defun my-create-files-window (files-buffer-name)
+  (if (one-window-p)
+      (split-window-vertically))
+  (switch-to-buffer-other-window files-buffer-name))
+
+(defun my-create-files-buffer (files-string files-buffer-name)
+  (save-excursion
+    (if (not (equal nil (get-buffer files-buffer-name)))
+	(kill-buffer files-buffer-name))
+    (get-buffer-create files-buffer-name)
+    (set-buffer files-buffer-name)
     (insert files-string)))
 
 (defun my-open-file-at-point ()
   (interactive)
-  (let* ((start (progn (beginning-of-line) (point)))
-	 (end (progn (end-of-line) (point)))
+  (let* ((start (line-beginning-position))
+	 (end (line-end-position))
 	 (str (buffer-substring (+ 2 start) end)))
     (find-file (concat (get-root-dir my-project) str))))
 
 (defun my-decorate-line ()
-    (let ((link-start (save-excursion
-		      (beginning-of-line)
-		      (point)))
-	(link-end (save-excursion
-		    (end-of-line)
-		    (point))))
+    (let ((link-start (line-beginning-position))
+	(link-end (line-end-position)))
     (add-text-properties link-start
 			 link-end
 			 '(mouse-face highlight
@@ -140,11 +145,15 @@ Defines a global variable 'my-project' which contains the project properties."
   (dotimes (i (count-screen-lines))
     (goto-line (+ 1 i))
     (my-decorate-line))
-    (setq buffer-read-only t))
+  (setq buffer-read-only t))
 
 (defun my-grep ()
+  "The function runs grep on the project sources excluding the specified
+ files. Then it opens another window with the search results. The files list
+ is clickable."
   (interactive)
-  (let* ((find-files (get-find-file my-project))
+  (let* ((files-buffer-name "Files")
+	 (find-files (get-find-file my-project))
 	 (root-dir (get-root-dir my-project))
 	 (prompt (cons "All" find-files))
 	 files
@@ -160,7 +169,8 @@ Defines a global variable 'my-project' which contains the project properties."
 			  (construct-grep-string (get-exclude my-project))
 			  "|xargs grep -s -l \"" text "\""))    
     (setq results (shell-command-to-string command))
-    (my-create-files-buffer results)
+    (my-create-files-buffer results files-buffer-name)
+    (my-create-files-window files-buffer-name)
     (my-make-files-buffer-clickable)))
 
 

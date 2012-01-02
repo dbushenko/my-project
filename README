@@ -2,6 +2,7 @@ The module provides the functions bound to the keys:
 1) C-<F9> opens a project file.
 2) <F2> generates the tags for the project and visits the tags table.
 3) <F7> quickly finds a file in the project.
+4) C-<F7> grep text on project sources. Excludes the specified files.
 
 Install
 1) Copy the file my-project.el to $HOME/.emacs.d
@@ -9,11 +10,11 @@ Install
 
 Usage
 Create 'project.el' in the project's root directory like this:
-(defproject "My project"               ; Name of the project
-  :root-dir "/root/dir"                ; Root directory of the project
-  :sources "*.java"                    ; The file extension for etags
-  :find-file '("*.java *.html *.css")  ; The file extension (one or more) for finding files. May be a string or a list of strings.
-  :exclude "(SNAPSHOT)|(generated)")   ; The grep regexp for files and directories to exclude from search.
+(defproject "My project"                   ; Name of the project
+  :root-dir "/root/dir"                    ; Root directory of the project
+  :sources "*.java"                        ; The file extension for etags
+  :find-file '("*.java" "*.html" "*.css")  ; The file extension (one or more) for finding files. May be a string or a list of strings.
+  :exclude "SNAPSHOT|generated")           ; The grep regexp for files and directories to exclude from search.
 
 Run C-<F9> to load your project file.
   
